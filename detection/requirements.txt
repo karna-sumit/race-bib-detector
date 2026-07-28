@@ -1,0 +1,23 @@
+# YOLOv8
+ultralytics>=8.0.0
+
+# OCR — EasyOCR with digit allowlist (~100–300ms per small crop)
+easyocr>=1.7.0
+pillow>=10.0.0
+requests-toolbelt>=1.0.0
+
+# Image processing
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+
+# HTTP requests
+requests>=2.31.0
+
+# Progress bars
+tqdm>=4.65.0
+
+# Utilities
+more-itertools>=9.1.0
+python-dotenv>=1.0.0
+
+pandas>=2.0.0

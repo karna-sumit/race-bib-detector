@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.env
+
+# Model weights (too large for git — store in GCS or release assets)
+models/*.pt
+runs/
+
+# Training data & annotation batches (large binary assets)
+dataset/
+marathon_annotation_batches/
+models/marathon_raw_data.txt
+models/marathon_raw_data_2023.json
+
+# Secrets
+detection/service_account.json
+
+# Data files
+failed_images.json
+processed_batches.json
+all_batches_metadata.json
+
+# Runtime output
+bib_results.csv
+failed_images.json
+processed_batches.json
+all_batches_metadata.json
+*.log
+*.csv
+
+# macOS
+.DS_Store
+
+# Archives
+*.zip
