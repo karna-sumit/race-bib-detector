@@ -13,8 +13,8 @@ Usage:
 """
 
 import argparse
-import subprocess
 import os
+from ultralytics import YOLO
 
 
 CHECKPOINT = "models/best.pt"
@@ -40,18 +40,15 @@ def main():
     print(f"Fine-tuning from: {CHECKPOINT}")
     print(f"Epochs: {args.epochs}  |  Device: {args.device}  |  Batch: {args.batch}")
 
-    cmd = [
-        "yolo", "detect", "train",
-        f"data={DATA_YAML}",
-        f"model={CHECKPOINT}",
-        f"epochs={args.epochs}",
-        f"imgsz={args.imgsz}",
-        f"batch={args.batch}",
-        f"device={args.device}",
-        "patience=10",        # stop early if no improvement for 10 epochs
-    ]
-
-    subprocess.run(cmd, check=True)
+    model = YOLO(CHECKPOINT)
+    model.train(
+        data=DATA_YAML,
+        epochs=args.epochs,
+        imgsz=args.imgsz,
+        batch=args.batch,
+        device=args.device,
+        patience=10,
+    )
 
 
 if __name__ == "__main__":
