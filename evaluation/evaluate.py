@@ -45,6 +45,12 @@ from detector import BibDetector  # type: ignore[import-untyped]
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', 'detection', '.env'))
 
+# All URLs are read from detection/.env — same as fetch_and_label.py
+TAGGER_ID          = os.getenv("TAGGER_ID", "")
+IMAGE_BASE_URL     = os.getenv("IMAGE_BASE_URL", "").rstrip("/")
+GET_ALBUMS_URL     = os.getenv("GET_ALBUMS_URL", "")
+GET_IMAGE_LIST_URL = os.getenv("GET_IMAGE_LIST_URL", "")
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -56,9 +62,32 @@ FAILURES_DIR          = Path("failures")
 # HTTP session
 # ---------------------------------------------------------------------------
 _session = requests.Session()
+_session.headers["User-Agent"] = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
 _adapter = requests.adapters.HTTPAdapter(pool_connections=32, pool_maxsize=32)
-_session.mount("http://", _adapter)
 _session.mount("https://", _adapter)
+
+
+def fetch_albums(year: str) -> list:
+    resp = _session.get(GET_ALBUMS_URL, timeout=config.IMAGE_FETCH_TIMEOUT)
+    resp.raise_for_status()
+    albums = resp.json()
+    for album in albums:
+        album["album_url"] = re.sub(r"/(\d{2})/", f"/{year}/", album["album_url"])
+    return albums
+
+
+def fetch_image_list(album_url: str) -> list:
+    resp = _session.post(
+        GET_IMAGE_LIST_URL,
+        json={"album": album_url, "tagger": TAGGER_ID},
+        timeout=config.IMAGE_FETCH_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return list(resp.json().values())
+
 
 def fetch_image(url: str):
     try:
@@ -106,15 +135,6 @@ def load_ground_truth(path: str) -> dict:
     return gt
 
 
-def build_album_lookup() -> dict:
-    """Map image_id → album dict."""
-    lookup = {}
-    for album in config.albums:
-        for i in range(album["startImageId"], album["startImageId"] + album["noOfImages"]):
-            lookup[i] = album
-    return lookup
-
-
 # ---------------------------------------------------------------------------
 # Verdict logic
 # ---------------------------------------------------------------------------
@@ -138,15 +158,14 @@ FAILURE_VERDICTS = {"false_positive", "false_negative", "partial_match", "wrong"
 # ---------------------------------------------------------------------------
 # Per-image worker
 # ---------------------------------------------------------------------------
-def evaluate_one(image_id: int, album: dict, gt_bibs: set,
+def evaluate_one(image_id: int, album_slug: str, url: str, gt_bibs: set,
                  detector: BibDetector, save_failures: bool):
-    url = config.GET_IMAGE_URL.format(album_name=album["name"], image_id=image_id)
     img = fetch_image(url)
 
     if img is None:
         return {
             "image_id": image_id,
-            "album":    album["name"],
+            "album":    album_slug,
             "gt_bibs":  ",".join(sorted(gt_bibs)),
             "detected": "",
             "verdict":  "fetch_failed",
@@ -159,12 +178,12 @@ def evaluate_one(image_id: int, album: dict, gt_bibs: set,
 
     if save_failures and v in FAILURE_VERDICTS:
         FAILURES_DIR.mkdir(exist_ok=True)
-        out_path = FAILURES_DIR / f"{v}_{album['name']}_{image_id}.jpg"
+        out_path = FAILURES_DIR / f"{v}_{album_slug}_{image_id}.jpg"
         cv2.imwrite(str(out_path), img)
 
     return {
         "image_id": image_id,
-        "album":    album["name"],
+        "album":    album_slug,
         "gt_bibs":  ",".join(sorted(gt_bibs)),
         "detected": ",".join(sorted(detected_bibs)),
         "verdict":  v,
@@ -182,6 +201,8 @@ def main():
     parser.add_argument("--album",   default=None, help="Restrict to one album (e.g. finish)")
     parser.add_argument("--limit",   type=int, default=None, help="Max images per album")
     parser.add_argument("--workers", type=int, default=16)
+    parser.add_argument("--year", required=True,
+                        help="2-digit year to evaluate (e.g. 23) — same as fetch_and_label --years")
     parser.add_argument("--no-save-failures", action="store_true",
                         help="Don't save failure images to disk")
     args = parser.parse_args()
@@ -193,19 +214,29 @@ def main():
     print("Loading detector model...")
     detector = BibDetector()
 
-    # Build work list using album ranges from config.py + URL from GET_IMAGE_URL in .env
-    print(f"Image URL template: {config.GET_IMAGE_URL}")
-    tasks = []  # (image_id, album_dict, gt_bibs)
+    # Fetch album + image list from API — same as fetch_and_label.py
+    print(f"Fetching album list for year {args.year}...")
+    api_albums = fetch_albums(args.year)
+    if args.album:
+        api_albums = [a for a in api_albums if a["album_url"].split("/")[-1] == args.album]
 
-    albums = [a for a in config.albums if args.album is None or a["name"] == args.album]
-    for album in albums:
-        ids = [i for i in range(album["startImageId"],
-                                album["startImageId"] + album["noOfImages"])
-               if i in gt]
+    tasks = []  # (image_id, album_slug, url, gt_bibs)
+    for album in api_albums:
+        album_slug = album["album_url"].split("/")[-1]
+        print(f"  Fetching image list: {album_slug}...")
+        try:
+            filenames = fetch_image_list(album["album_url"])
+        except Exception as e:
+            print(f"  WARNING: could not fetch image list for {album_slug}: {e}")
+            continue
         if args.limit:
-            ids = ids[:args.limit]
-        for img_id in ids:
-            tasks.append((img_id, album, gt[img_id]))
+            filenames = filenames[:args.limit]
+        for filename in filenames:
+            image_id = int(Path(filename).stem)
+            if image_id not in gt:
+                continue
+            url = f"{IMAGE_BASE_URL}/{album['album_url']}/{filename}"
+            tasks.append((image_id, album_slug, url, gt[image_id]))
 
     print(f"Evaluating {len(tasks):,} images with {args.workers} workers...\n")
 
@@ -215,8 +246,8 @@ def main():
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
-            pool.submit(evaluate_one, img_id, album, gt_bibs, detector, save_failures): img_id
-            for img_id, album, gt_bibs in tasks
+            pool.submit(evaluate_one, img_id, album_slug, url, gt_bibs, detector, save_failures): img_id
+            for img_id, album_slug, url, gt_bibs in tasks
         }
         for fut in tqdm(as_completed(futures), total=len(futures)):
             row = fut.result()
