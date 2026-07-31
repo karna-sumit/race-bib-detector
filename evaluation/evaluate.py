@@ -243,7 +243,7 @@ def main():
                 image_id = int(Path(filename).stem)
                 if image_id not in gt:
                     continue
-                url = f"{config.IMAGE_BASE_URL.rstrip('/')}/{api_album['album_url']}/{filename}"
+                url = f"{os.getenv('IMAGE_BASE_URL', '').rstrip('/')}/{api_album['album_url']}/{filename}"
                 tasks.append((image_id, {"name": album_slug}, gt[image_id], url))
     else:
         # Static config: use album ranges from config.py
