@@ -63,7 +63,8 @@ _session.mount("https://", _adapter)
 # ---------------------------------------------------------------------------
 def fetch_albums_for_year(year: str) -> list:
     """Fetch album list from the API and patch the year segment."""
-    resp = _session.get(config.GET_ALBUMS_URL, timeout=config.IMAGE_FETCH_TIMEOUT)
+    url = os.getenv("GET_ALBUMS_URL", "")
+    resp = _session.get(url, timeout=config.IMAGE_FETCH_TIMEOUT)
     resp.raise_for_status()
     albums = resp.json()
     for album in albums:
@@ -74,7 +75,7 @@ def fetch_albums_for_year(year: str) -> list:
 def fetch_image_list_for_album(album_url: str) -> list:
     """POST to get-image-list.php and return list of filenames."""
     resp = _session.post(
-        config.GET_IMAGE_LIST_URL,
+        os.getenv("GET_IMAGE_LIST_URL", ""),
         json={"album": album_url, "tagger": os.getenv("TAGGER_ID", "")},
         timeout=config.IMAGE_FETCH_TIMEOUT,
     )
