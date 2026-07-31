@@ -213,6 +213,8 @@ def main():
 
     print("Loading detector model...")
     detector = BibDetector()
+    # Warm up: one dummy predict so the model is fully fused before threads start
+    detector.detect_bibs_in_image(np.zeros((64, 64, 3), dtype=np.uint8))
 
     # Fetch album + image list from API — same as fetch_and_label.py
     print(f"Fetching album list for year {args.year}...")
