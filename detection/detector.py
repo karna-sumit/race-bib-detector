@@ -1,6 +1,7 @@
 from ultralytics import YOLO
 import utils
 import config
+import logging
 import re
 import threading
 import cv2
@@ -8,6 +9,8 @@ import numpy as np
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import easyocr
+
+logger = logging.getLogger(__name__)
 
 # EasyOCR reader — loaded once, shared across threads.
 # readtext() is not thread-safe internally, so all OCR calls go through a lock.
@@ -17,7 +20,7 @@ _ocr_lock   = threading.Lock()
 
 def _ocr_roi(roi):
     """Run EasyOCR digit-only recognition on a small crop. Thread-safe via lock.
-    Returns (text, bbox) where bbox is the EasyOCR polygon, or ('', None) on miss.
+    Returns (text, bbox, conf) — text and bbox are empty/None on miss.
     """
     with _ocr_lock:
         results = _ocr_reader.readtext(
@@ -27,12 +30,12 @@ def _ocr_roi(roi):
             paragraph=False,
         )
     if not results:
-        return "", None
+        return "", None, 0.0
     best = max(results, key=lambda r: r[2])
     bbox, text, conf = best[0], best[1], best[2]
     if conf < config.OCR_CONF_THRESHOLD:
-        return "", None
-    return "".join(filter(str.isdigit, text)), bbox
+        return "", None, 0.0
+    return "".join(filter(str.isdigit, text)), bbox, float(conf)
 
 
 class BibDetector:
@@ -69,8 +72,7 @@ class BibDetector:
             if detections:
                 utils.post_results(img_id, album["albumNr"], detections)
         except Exception as e:  # noqa: BLE001
-            import logging
-            logging.getLogger(__name__).warning("Failed image %s: %s", img_id, e)
+            logger.warning("Failed image %s: %s", img_id, e)
 
     def _process_album_concurrent(self, album, workers):
         album_name = album["name"]
@@ -90,14 +92,19 @@ class BibDetector:
                 continue  # progress bar only — results are written inside each worker
 
     def _process_result_boxes(self, result, img):
-        """Process YOLO prediction boxes for a single result."""
+        """Process YOLO prediction boxes for a single result.
+
+        Filters to person boxes above threshold, sorts by descending YOLO
+        confidence, and caps at 10 to bound OCR cost per image.
+        """
+        person_boxes = [b for b in result.boxes if self._is_valid_person_box(b)]
+        person_boxes.sort(key=lambda b: float(b.conf[0]), reverse=True)
         detections = []
-        for box in list(result.boxes)[:10]:  # max 10 persons
-            if self._is_valid_person_box(box):
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                roi = img[y1:y2, x1:x2]
-                if roi.size > 0:
-                    detections.extend(self._extract_bibs_from_roi(roi, x1, y1, x2, y2, float(box.conf[0])))
+        for box in person_boxes[:10]:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            roi = img[y1:y2, x1:x2]
+            if roi.size > 0:
+                detections.extend(self._extract_bibs_from_roi(roi, x1, y1, x2, y2, float(box.conf[0])))
         return detections
 
     def _is_valid_person_box(self, box):
@@ -119,7 +126,7 @@ class BibDetector:
         torso = roi[:int(h * 0.55), :]
         if torso.size == 0:
             return []
-        clean_text, ocr_bbox = _ocr_roi(torso)
+        clean_text, ocr_bbox, ocr_conf = _ocr_roi(torso)
         if not clean_text or not re.fullmatch(r"\d{1,4}", clean_text):
             return []
 
@@ -136,6 +143,6 @@ class BibDetector:
         return [{
             "bib_number": clean_text,
             "yolo_conf": yolo_conf,
-            "ocr_conf": 1.0,  # EasyOCR conf filtered above threshold; exact value discarded
+            "ocr_conf": ocr_conf,
             "bbox": [x1, y1, x2, y2]
         }]

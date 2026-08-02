@@ -39,16 +39,6 @@ def load_processed_ids() -> set:
     return done
 
 
-def remove_duplicate_dicts(detections: list) -> list:
-    """Deduplicate detections by bib_number, keeping the highest-confidence result."""
-    seen = {}
-    for d in detections:
-        bib = d["bib_number"]
-        if bib not in seen or d["yolo_conf"] > seen[bib]["yolo_conf"]:
-            seen[bib] = d
-    return list(seen.values())
-
-
 def post_results(image_id: int, album_number: int, bib_numbers: list):
     """Post detections to the API and append to CSV. Thread-safe."""
     bib_numbers = [d["bib_number"] if isinstance(d, dict) else d for d in bib_numbers]
@@ -85,28 +75,12 @@ def fetch_image(url: str):
     except Exception:
         return None
 
-def _remove_substring_bibs(detections: list) -> list:
-    """Drop detections whose bib_number is a substring of another detection.
-
-    e.g. if both '123' and '1234' are detected, '123' is dropped because
-    it is likely a partial read of the same bib.
-    """
-    bibs = [d["bib_number"] for d in detections]
-    bibs_sorted = sorted(set(bibs), key=len, reverse=True)
-    keep = []
-    for bib in bibs_sorted:
-        if not any(bib in longer for longer in keep):
-            keep.append(bib)
-    keep_set = set(keep)
-    return [d for d in detections if d["bib_number"] in keep_set]
-
 
 def remove_duplicate_dicts(detections: list) -> list:
-    """Deduplicate detections by bib_number (exact), keeping highest yolo_conf,
-    then drop any bib that is a pure substring of a longer detected bib."""
+    """Deduplicate detections by bib_number, keeping the highest yolo_conf result."""
     seen = {}
     for d in detections:
         bib = d["bib_number"]
         if bib not in seen or d["yolo_conf"] > seen[bib]["yolo_conf"]:
             seen[bib] = d
-    return _remove_substring_bibs(list(seen.values()))
+    return list(seen.values())

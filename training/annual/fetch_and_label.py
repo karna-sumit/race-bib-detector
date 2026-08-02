@@ -229,7 +229,7 @@ def main():
         total_new += process_year(year, model)
 
     print(f"\nDone. {total_new:,} new labelled images added to dataset/")
-    print("Next step: run  python training/resume_training.py  to fine-tune.")
+    print("Next step: run  python training/annual/train_detector.py  to fine-tune.")
 
 
 if __name__ == "__main__":
