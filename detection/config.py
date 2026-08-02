@@ -1,6 +1,6 @@
 # Configuration constants for the Bib Detector project
 
-# API endpoints — set in detection/.env or as environment variables
+# API endpoints - set in detection/.env or as environment variables
 import os
 from dotenv import load_dotenv
 _env_path = os.path.join(os.path.dirname(__file__), '.env')

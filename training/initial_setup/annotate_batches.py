@@ -1,7 +1,7 @@
 """
 annotate_batches.py  (training/initial_setup/)
 -----------------------------------------------
-Path B — Step 2. One-time setup only.
+Path B - Step 2. One-time setup only.
 
 Runs the current detector (models/best.pt) over each manually-collected
 image batch and writes the resulting bounding-box coordinates into

@@ -1,7 +1,7 @@
 """
 init_dataset_config.py  (training/initial_setup/)
 ---------------------------------------------------
-Path B — Step 4. One-time setup only.
+Path B - Step 4. One-time setup only.
 
 Writes training/data.yaml pointing at the dataset/ folder.
 Only needs to be run once when first setting up the project.

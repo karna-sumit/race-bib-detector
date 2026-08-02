@@ -12,7 +12,7 @@ import easyocr
 
 logger = logging.getLogger(__name__)
 
-# EasyOCR reader — loaded once, shared across threads.
+# EasyOCR reader - loaded once, shared across threads.
 # readtext() is not thread-safe internally, so all OCR calls go through a lock.
 _ocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
 _ocr_lock   = threading.Lock()
@@ -20,7 +20,7 @@ _ocr_lock   = threading.Lock()
 
 def _ocr_roi(roi):
     """Run EasyOCR digit-only recognition on a small crop. Thread-safe via lock.
-    Returns (text, bbox, conf) — text and bbox are empty/None on miss.
+    Returns (text, bbox, conf) - text and bbox are empty/None on miss.
     """
     with _ocr_lock:
         results = _ocr_reader.readtext(
@@ -85,11 +85,11 @@ class BibDetector:
             print(f"Album '{album_name}' already complete, skipping.")
             return
 
-        print(f"Processing album '{album_name}' — {len(ids)} remaining / {album['noOfImages']} total")
+        print(f"Processing album '{album_name}' - {len(ids)} remaining / {album['noOfImages']} total")
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(self._process_one, img_id, album): img_id for img_id in ids}
             for _ in tqdm(as_completed(futures), total=len(futures), desc=album_name, leave=False):
-                continue  # progress bar only — results are written inside each worker
+                pass
 
     def _process_result_boxes(self, result, img):
         """Process YOLO prediction boxes for a single result.
@@ -114,12 +114,12 @@ class BibDetector:
     def _extract_bibs_from_roi(self, roi, x1, y1, x2, y2, yolo_conf):
         """Run OCR on the upper torso of the person crop and return any bib found.
 
-        Bibs sit on the chest — roughly the top 55% of a person bounding box.
+        Bibs sit on the chest - roughly the top 55% of a person bounding box.
         Scanning the full box causes false positives from race signage, shorts
         text, and shoe logos in the lower half (the classic '10' artefact).
 
         The margin check drops any OCR result whose bounding box sits too close
-        to the edge of the torso crop — likely a partial read of clothing text
+        to the edge of the torso crop - likely a partial read of clothing text
         rather than the bib number.
         """
         h, w = roi.shape[:2]
@@ -130,7 +130,7 @@ class BibDetector:
         if not clean_text or not re.fullmatch(r"\d{1,4}", clean_text):
             return []
 
-        # Margin check — drop text detected within 15% of any torso edge
+        # Margin check - drop text detected within 15% of any torso edge
         if ocr_bbox is not None:
             th, tw = torso.shape[:2]
             margin = min(tw, th) * 0.15

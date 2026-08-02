@@ -1,7 +1,7 @@
 """
 train_detector.py  (training/annual/)
 --------------------------------------
-Path A — Step 2. Run this after fetch_and_label.py has added new images.
+Path A - Step 2. Run this after fetch_and_label.py has added new images.
 
 Fine-tunes models/best.pt on the current dataset/ for a fixed number of
 epochs. Stops early if validation loss doesn't improve for 10 epochs.
@@ -28,7 +28,7 @@ def main():
     parser.add_argument("--device", default="mps",
                         help="Device: mps (Apple Silicon), 0 (CUDA GPU), cpu")
     parser.add_argument("--batch",  type=int, default=16,
-                        help="Batch size — use 32 on T4, 16 on MPS")
+                        help="Batch size - use 32 on T4, 16 on MPS")
     parser.add_argument("--imgsz",  type=int, default=640)
     args = parser.parse_args()
 

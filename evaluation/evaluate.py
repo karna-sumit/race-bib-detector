@@ -4,12 +4,12 @@ evaluate.py
 Runs the detector against race images and compares results to ground truth.
 
 Supports two ground truth formats:
-  - .txt  — (image_id, 'bibnr', albumnr) tuples  [2024 format]
-  - .json — phpMyAdmin export with {id, bibnr, albumnr} rows  [2023 format]
+  - .txt  - (image_id, 'bibnr', albumnr) tuples  [2024 format]
+  - .json - phpMyAdmin export with {id, bibnr, albumnr} rows  [2023 format]
 
 Outputs:
-  - evaluation_results.csv  — one row per image: ground truth, detected, verdict
-  - failures/               — saved images for every miss and false positive
+  - evaluation_results.csv  - one row per image: ground truth, detected, verdict
+  - failures/               - saved images for every miss and false positive
 
 Usage:
     # 2024 ground truth (default)
@@ -45,7 +45,7 @@ from detector import BibDetector  # type: ignore[import-untyped]
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', 'detection', '.env'))
 
-# All URLs are read from detection/.env — same as fetch_and_label.py
+# All URLs are read from detection/.env - same as fetch_and_label.py
 TAGGER_ID          = os.getenv("TAGGER_ID", "")
 IMAGE_BASE_URL     = os.getenv("IMAGE_BASE_URL", "").rstrip("/")
 GET_ALBUMS_URL     = os.getenv("GET_ALBUMS_URL", "")
@@ -109,8 +109,8 @@ def load_ground_truth(path: str) -> dict:
     Parse ground truth into {image_id: set(bib_strings)}.
 
     Supports two formats:
-      .txt  — (image_id, 'bibnr', albumnr) tuples
-      .json — phpMyAdmin export: [{type, data: [{id, bibnr, albumnr}, ...]}, ...]
+      .txt  - (image_id, 'bibnr', albumnr) tuples
+      .json - phpMyAdmin export: [{type, data: [{id, bibnr, albumnr}, ...]}, ...]
     """
     gt = {}
     if path.endswith(".json"):
@@ -140,16 +140,16 @@ def load_ground_truth(path: str) -> dict:
 # ---------------------------------------------------------------------------
 def verdict(gt_bibs: set, detected_bibs: set) -> str:
     if not gt_bibs and not detected_bibs:
-        return "true_negative"     # no bibs, none detected — correct
+        return "true_negative"
     if not gt_bibs and detected_bibs:
-        return "false_positive"    # detected bibs that aren't there
+        return "false_positive"
     if gt_bibs and not detected_bibs:
-        return "false_negative"    # missed all bibs
+        return "false_negative"
     if gt_bibs == detected_bibs:
-        return "exact_match"       # perfect
+        return "exact_match"
     if gt_bibs & detected_bibs:
-        return "partial_match"     # got some, missed or added others
-    return "wrong"                 # detected something completely different
+        return "partial_match"
+    return "wrong"
 
 
 FAILURE_VERDICTS = {"false_positive", "false_negative", "partial_match", "wrong"}
@@ -202,7 +202,7 @@ def main():
     parser.add_argument("--limit",   type=int, default=None, help="Max images per album")
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--year", required=True,
-                        help="2-digit year to evaluate (e.g. 23) — same as fetch_and_label --years")
+                        help="2-digit year to evaluate (e.g. 23) - same as fetch_and_label --years")
     parser.add_argument("--no-save-failures", action="store_true",
                         help="Don't save failure images to disk")
     args = parser.parse_args()
@@ -216,7 +216,7 @@ def main():
     # Warm up: one dummy predict so the model is fully fused before threads start
     detector.detect_bibs_in_image(np.zeros((64, 64, 3), dtype=np.uint8))
 
-    # Fetch album + image list from API — same as fetch_and_label.py
+    # Fetch album + image list from API - same as fetch_and_label.py
     print(f"Fetching album list for year {args.year}...")
     api_albums = fetch_albums(args.year)
     if args.album:

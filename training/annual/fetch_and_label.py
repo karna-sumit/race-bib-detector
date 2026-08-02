@@ -1,13 +1,13 @@
 """
 fetch_and_label.py  (training/annual/)
 ---------------------------------------
-Path A — Step 1. Run this every year after the race.
+Path A - Step 1. Run this every year after the race.
 
 Fetches race images for a previous year from the API, runs the pretrained
 YOLOv8n person detector on each image to generate bounding-box labels,
 and writes them into dataset/ in YOLO format.
 
-No manual annotation needed — the person detector does the labelling.
+No manual annotation needed - the person detector does the labelling.
 
 Usage:
     python training/annual/fetch_and_label.py --years 23
@@ -45,7 +45,7 @@ WORKERS        = 16     # concurrent download threads
 SKIP_EXISTING  = True   # skip images already in dataset/
 LABELLER_MODEL = "yolov8n.pt"  # downloads automatically on first run (~6 MB)
 
-# All URLs are read from detection/.env — never constructed in code
+# All URLs are read from detection/.env - never constructed in code
 TAGGER_ID          = os.getenv("TAGGER_ID", "")
 IMAGE_BASE_URL     = os.getenv("IMAGE_BASE_URL", "").rstrip("/")
 GET_ALBUMS_URL     = os.getenv("GET_ALBUMS_URL", "")
@@ -66,7 +66,7 @@ _session.mount("https://", _adapter)
 def fetch_albums(year: str) -> list:
     """
     Fetch album list from the API and patch the year segment in each album_url.
-    The API returns album_url values like "images/23/albums/raus" — we replace
+    The API returns album_url values like "images/23/albums/raus" - we replace
     the year so we can reuse the same API call for any year.
     """
     resp = _session.get(GET_ALBUMS_URL, timeout=config.IMAGE_FETCH_TIMEOUT)
@@ -88,7 +88,7 @@ def fetch_image_list(album_url: str) -> list:
         timeout=config.IMAGE_FETCH_TIMEOUT,
     )
     resp.raise_for_status()
-    # Response is {"2": "10000.jpg", "3": "10001.jpg", ...} — we only need the filenames
+    # Response is {"2": "10000.jpg", "3": "10001.jpg", ...} - we only need the filenames
     return list(resp.json().values())
 
 
@@ -167,7 +167,7 @@ def process_year(year: str, model: YOLO):
         try:
             filenames = fetch_image_list(album["album_url"])
         except Exception as e:
-            print(f"  Warning: failed to fetch image list — {e}")
+            print(f"  Warning: failed to fetch image list - {e}")
             continue
 
         if not filenames:

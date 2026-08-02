@@ -1,7 +1,7 @@
 """
 build_dataset.py  (training/initial_setup/)
 --------------------------------------------
-Path B — Step 3. One-time setup only.
+Path B - Step 3. One-time setup only.
 
 Reads all annotated batches from marathon_annotation_batches/, converts
 bounding boxes to YOLO normalised format, and writes the final dataset
