@@ -1,7 +1,7 @@
 # YOLOv8
 ultralytics>=8.0.0
 
-# OCR — EasyOCR with digit allowlist (~100–300ms per small crop)
+# OCR - EasyOCR with digit allowlist (~100–300ms per small crop)
 easyocr>=1.7.0
 pillow>=10.0.0
 requests-toolbelt>=1.0.0
