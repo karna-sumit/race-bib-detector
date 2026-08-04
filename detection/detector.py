@@ -6,6 +6,7 @@ import re
 import threading
 import cv2
 import numpy as np
+from pathlib import Path
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import easyocr
@@ -57,13 +58,15 @@ class BibDetector:
     def batch_detect_bibs(self):
         """Run detection on all images using a thread pool for concurrent fetching + processing."""
         workers = getattr(config, "WORKERS", 16)
-        for album in config.albums:
+        albums = utils.fetch_albums()
+        for album in albums:
             self._process_album_concurrent(album, workers)
 
     # ==================== Private Helpers ====================
-    def _process_one(self, img_id, album):
+    def _process_one(self, filename, album):
         """Fetch and process a single image. Designed to run in a thread pool."""
-        url = config.GET_IMAGE_URL.format(album_name=album["name"], image_id=img_id)
+        img_id = int(Path(filename).stem)
+        url = f"{config.IMAGE_BASE_URL}/{album['album_url']}/{filename}"
         img = utils.fetch_image(url)
         if img is None:
             return
@@ -75,19 +78,22 @@ class BibDetector:
             logger.warning("Failed image %s: %s", img_id, e)
 
     def _process_album_concurrent(self, album, workers):
-        album_name = album["name"]
-        start_id = album["startImageId"]
-        end_id = start_id + album["noOfImages"]
-        done = utils.load_processed_ids()
+        album_name = album.get("name") or album["album_url"].split("/")[-1]
+        try:
+            filenames = utils.fetch_image_list(album["album_url"])
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to fetch image list for %s: %s", album_name, e)
+            return
 
-        ids = [i for i in range(start_id, end_id) if i not in done]
-        if not ids:
+        done = utils.load_processed_ids()
+        pending = [fn for fn in filenames if int(Path(fn).stem) not in done]
+        if not pending:
             print(f"Album '{album_name}' already complete, skipping.")
             return
 
-        print(f"Processing album '{album_name}' - {len(ids)} remaining / {album['noOfImages']} total")
+        print(f"Processing album '{album_name}' - {len(pending)} remaining / {len(filenames)} total")
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(self._process_one, img_id, album): img_id for img_id in ids}
+            futures = {pool.submit(self._process_one, fn, album): fn for fn in pending}
             for _ in tqdm(as_completed(futures), total=len(futures), desc=album_name, leave=False):
                 pass
 
@@ -112,13 +118,7 @@ class BibDetector:
         return int(box.cls[0]) == 0 and float(box.conf[0]) > config.CONF_THRESHOLD
 
     def _extract_bibs_from_roi(self, roi, x1, y1, x2, y2, yolo_conf):
-        """Run OCR on the upper torso of the person crop and return any bib found.
-
-        Bibs sit on the chest - roughly the top 55% of a person bounding box.
-        Scanning the full box causes false positives from race signage, shorts
-        text, and shoe logos in the lower half (the classic '10' artefact).
-
-        The margin check dfull person crop and return any bib found.
+        """Run OCR on the full person crop and return any bib found.
 
         The OCR confidence threshold filters noise from shoes/shorts logos,
         and the margin check drops reads that hug the box edges (typically
@@ -137,6 +137,12 @@ class BibDetector:
             xs = [pt[0] for pt in ocr_bbox]
             ys = [pt[1] for pt in ocr_bbox]
             if min(xs) < margin or min(ys) < margin or \
-               max(xs) > rw - margin or max(ys) > r
+               max(xs) > rw - margin or max(ys) > rh - margin:
+                return []
+
+        return [{
+            "bib_number": clean_text,
+            "yolo_conf": yolo_conf,
+            "ocr_conf": ocr_conf,
             "bbox": [x1, y1, x2, y2]
         }]

@@ -84,3 +84,21 @@ def remove_duplicate_dicts(detections: list) -> list:
         if bib not in seen or d["yolo_conf"] > seen[bib]["yolo_conf"]:
             seen[bib] = d
     return list(seen.values())
+
+
+def fetch_albums() -> list:
+    """Fetch the current season's album metadata from the API."""
+    resp = _session.get(config.GET_ALBUMS_URL, timeout=config.IMAGE_FETCH_TIMEOUT)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def fetch_image_list(album_url: str) -> list:
+    """POST to get-image-list.php and return the list of filenames for an album."""
+    resp = _session.post(
+        config.GET_IMAGE_LIST_URL,
+        json={"album": album_url, "tagger": config.TAGGER_ID},
+        timeout=config.IMAGE_FETCH_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return list(resp.json().values())

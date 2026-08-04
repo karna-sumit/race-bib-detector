@@ -101,6 +101,22 @@ def fetch_image(url: str):
         return None
 
 
+def load_val_image_ids(val_dir: str, year: str) -> set:
+    """Return image_ids for val files matching y{year}_*.jpg (auto-labeled images)."""
+    p = Path(val_dir)
+    if not p.is_dir():
+        raise FileNotFoundError(f"val-dir not found: {val_dir}")
+    ids = set()
+    prefix = f"y{year}_"
+    for f in p.iterdir():
+        if f.suffix.lower() != ".jpg" or not f.stem.startswith(prefix):
+            continue
+        m = re.search(r"(\d+)$", f.stem)
+        if m:
+            ids.add(int(m.group(1)))
+    return ids
+
+
 # ---------------------------------------------------------------------------
 # Ground truth parsing
 # ---------------------------------------------------------------------------
@@ -203,6 +219,9 @@ def main():
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--year", required=True,
                         help="2-digit year to evaluate (e.g. 23) - same as fetch_and_label --years")
+    parser.add_argument("--val-dir", default=None,
+                        help="Restrict evaluation to image_ids present in this dir "
+                             "as y{year}_*.jpg (excludes training-set images)")
     parser.add_argument("--no-save-failures", action="store_true",
                         help="Don't save failure images to disk")
     args = parser.parse_args()
@@ -210,6 +229,12 @@ def main():
     print(f"Loading ground truth: {args.ground_truth}")
     gt        = load_ground_truth(args.ground_truth)
     print(f"Ground truth: {len(gt):,} images  ({sum(1 for b in gt.values() if b):,} with bibs)")
+
+    if args.val_dir:
+        val_ids = load_val_image_ids(args.val_dir, args.year)
+        print(f"Val split: {len(val_ids):,} image_ids from {args.val_dir}")
+        gt = {img_id: bibs for img_id, bibs in gt.items() if img_id in val_ids}
+        print(f"After val filter: {len(gt):,} images to evaluate")
 
     print("Loading detector model...")
     detector = BibDetector()
