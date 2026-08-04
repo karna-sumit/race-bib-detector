@@ -118,31 +118,25 @@ class BibDetector:
         Scanning the full box causes false positives from race signage, shorts
         text, and shoe logos in the lower half (the classic '10' artefact).
 
-        The margin check drops any OCR result whose bounding box sits too close
-        to the edge of the torso crop - likely a partial read of clothing text
-        rather than the bib number.
+        The margin check dfull person crop and return any bib found.
+
+        The OCR confidence threshold filters noise from shoes/shorts logos,
+        and the margin check drops reads that hug the box edges (typically
+        partial reads of clothing text bleeding out of the crop).
         """
-        h, w = roi.shape[:2]
-        torso = roi[:int(h * 0.55), :]
-        if torso.size == 0:
+        if roi.size == 0:
             return []
-        clean_text, ocr_bbox, ocr_conf = _ocr_roi(torso)
+        clean_text, ocr_bbox, ocr_conf = _ocr_roi(roi)
         if not clean_text or not re.fullmatch(r"\d{1,4}", clean_text):
             return []
 
-        # Margin check - drop text detected within 15% of any torso edge
+        # Margin check - drop text detected within 15% of any person-box edge
         if ocr_bbox is not None:
-            th, tw = torso.shape[:2]
-            margin = min(tw, th) * 0.15
+            rh, rw = roi.shape[:2]
+            margin = min(rw, rh) * 0.15
             xs = [pt[0] for pt in ocr_bbox]
             ys = [pt[1] for pt in ocr_bbox]
             if min(xs) < margin or min(ys) < margin or \
-               max(xs) > tw - margin or max(ys) > th - margin:
-                return []
-
-        return [{
-            "bib_number": clean_text,
-            "yolo_conf": yolo_conf,
-            "ocr_conf": ocr_conf,
+               max(xs) > rw - margin or max(ys) > r
             "bbox": [x1, y1, x2, y2]
         }]
