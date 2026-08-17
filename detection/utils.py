@@ -87,6 +87,74 @@ def post_results(image_id: int, album_number: int, bib_numbers: list):
         logger.warning("post_results failed for image %s: %s", image_id, e)
 
 
+def append_csv_row(image_id: int, album_number: int, bib_numbers: list):
+    """Append a single detection result to the output CSV. Thread-safe."""
+    bib_numbers = [d["bib_number"] if isinstance(d, dict) else d for d in bib_numbers]
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _csv_lock:
+        with open(config.OUTPUT_CSV, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([timestamp, image_id, album_number, ",".join(bib_numbers)])
+
+
+def _post_batch(album_number: int, items: list):
+    """POST a batch of {id, bibNr} items to ADD_IMAGES_URL."""
+    if not items:
+        return
+    payload = {
+        "albumNr": album_number,
+        "tagger": os.getenv("TAGGER_ID"),
+        "images": items,
+    }
+    headers = {"accept": "application/json", "content-type": "application/json"}
+    try:
+        resp = _session.post(
+            config.ADD_IMAGES_URL, headers=headers, json=payload, timeout=30
+        )
+        _record_post_status(resp.status_code)
+        if resp.status_code >= 400:
+            logger.warning(
+                "POST batch non-2xx status=%s album=%s size=%d body=%s",
+                resp.status_code, album_number, len(items), resp.text[:200],
+            )
+    except Exception as e:
+        _record_post_status(-1)
+        logger.warning(
+            "post_batch failed album=%s size=%d: %s", album_number, len(items), e
+        )
+
+
+class PostBatcher:
+    """Thread-safe per-album buffer that flushes to ADD_IMAGES_URL."""
+
+    def __init__(self, album_number: int, batch_size: int = 50):
+        self.album_number = album_number
+        self.batch_size = batch_size
+        self._buf: list = []
+        self._lock = threading.Lock()
+
+    def add(self, image_id: int, bib_numbers: list):
+        bib_numbers = [
+            d["bib_number"] if isinstance(d, dict) else d for d in bib_numbers
+        ]
+        item = {"id": f"{image_id}.jpg", "bibNr": ",".join(bib_numbers)}
+        to_flush = None
+        with self._lock:
+            self._buf.append(item)
+            if len(self._buf) >= self.batch_size:
+                to_flush = self._buf
+                self._buf = []
+        if to_flush is not None:
+            _post_batch(self.album_number, to_flush)
+
+    def flush(self):
+        with self._lock:
+            to_flush = self._buf
+            self._buf = []
+        if to_flush:
+            _post_batch(self.album_number, to_flush)
+
+
 _fetch_status_counts: dict = {}
 _fetch_status_lock = threading.Lock()
 

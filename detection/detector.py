@@ -126,7 +126,7 @@ class BibDetector:
             self._process_album_concurrent(album, workers)
 
     # ==================== Private Helpers ====================
-    def _process_one(self, filename, album):
+    def _process_one(self, filename, album, batcher):
         """Fetch and process a single image. Designed to run in a thread pool."""
         img_id = int(Path(filename).stem)
         url = f"{config.IMAGE_BASE_URL}/{album['album_url']}/{filename}"
@@ -136,7 +136,9 @@ class BibDetector:
         try:
             detections = self.detect_bibs_in_image(img)
             if detections:
-                utils.post_results(img_id, album["id"], detections)
+                # CSV write disabled; no resume support until re-enabled.
+                # utils.append_csv_row(img_id, album["id"], detections)
+                batcher.add(img_id, detections)
         except Exception as e:  # noqa: BLE001
             logger.warning("Failed image %s: %s", img_id, e)
 
@@ -155,17 +157,21 @@ class BibDetector:
             return
 
         print(f"Processing album '{album_name}' - {len(pending)} remaining / {len(filenames)} total")
+        batcher = utils.PostBatcher(album["id"], batch_size=config.POST_BATCH_SIZE)
         completed = 0
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(self._process_one, fn, album): fn for fn in pending}
-            for _ in tqdm(as_completed(futures), total=len(futures), desc=album_name, leave=False):
-                completed += 1
-                if completed % 250 == 0:
-                    logger.info(
-                        "GET: %s | POST: %s",
-                        utils.fetch_status_snapshot(),
-                        utils.post_status_snapshot(),
-                    )
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {pool.submit(self._process_one, fn, album, batcher): fn for fn in pending}
+                for _ in tqdm(as_completed(futures), total=len(futures), desc=album_name, leave=False):
+                    completed += 1
+                    if completed % 250 == 0:
+                        logger.info(
+                            "GET: %s | POST: %s",
+                            utils.fetch_status_snapshot(),
+                            utils.post_status_snapshot(),
+                        )
+        finally:
+            batcher.flush()
         logger.info(
             "album '%s' done. GET: %s | POST: %s",
             album_name,
@@ -174,16 +180,17 @@ class BibDetector:
         )
 
     def _process_result_boxes(self, result, img):
-        """Process YOLO prediction boxes for a single result.
-
-        Filters to person boxes above threshold, sorts by descending YOLO
-        confidence, and caps at 10 to bound OCR cost per image.
-        """
+        """Filter person boxes, skip frame-clipped ones, cap at 10, run OCR."""
+        h_img, w_img = img.shape[:2]
+        edge_margin = max(4, int(config.EDGE_MARGIN_FRAC * max(h_img, w_img)))
         person_boxes = [b for b in result.boxes if self._is_valid_person_box(b)]
         person_boxes.sort(key=lambda b: float(b.conf[0]), reverse=True)
         detections = []
         for box in person_boxes[:10]:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
+            if (x1 <= edge_margin or y1 <= edge_margin
+                    or x2 >= w_img - edge_margin or y2 >= h_img - edge_margin):
+                continue
             roi = img[y1:y2, x1:x2]
             if roi.size > 0:
                 detections.extend(self._extract_bibs_from_roi(roi, x1, y1, x2, y2, float(box.conf[0])))
