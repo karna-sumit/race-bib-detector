@@ -44,6 +44,20 @@ def load_processed_ids() -> set:
     return done
 
 
+_post_status_counts: dict = {}
+_post_status_lock = threading.Lock()
+
+
+def _record_post_status(code: int):
+    with _post_status_lock:
+        _post_status_counts[code] = _post_status_counts.get(code, 0) + 1
+
+
+def post_status_snapshot() -> dict:
+    with _post_status_lock:
+        return dict(_post_status_counts)
+
+
 def post_results(image_id: int, album_number: int, bib_numbers: list):
     """Post detections to the API and append to CSV. Thread-safe."""
     bib_numbers = [d["bib_number"] if isinstance(d, dict) else d for d in bib_numbers]
@@ -55,7 +69,13 @@ def post_results(image_id: int, album_number: int, bib_numbers: list):
             "tagger": os.getenv("TAGGER_ID"),
         }
         headers = {"accept": "application/json", "content-type": "application/json"}
-        _session.post(config.ADD_IMAGE_URL, headers=headers, json=payload, timeout=10)
+        resp = _session.post(config.ADD_IMAGE_URL, headers=headers, json=payload, timeout=10)
+        _record_post_status(resp.status_code)
+        if resp.status_code >= 400:
+            logger.warning(
+                "POST non-2xx status=%s image=%s body=%s",
+                resp.status_code, image_id, resp.text[:200],
+            )
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with _csv_lock:
@@ -63,6 +83,7 @@ def post_results(image_id: int, album_number: int, bib_numbers: list):
                 writer = csv.writer(f)
                 writer.writerow([timestamp, image_id, album_number, ",".join(bib_numbers)])
     except Exception as e:
+        _record_post_status(-1)
         logger.warning("post_results failed for image %s: %s", image_id, e)
 
 

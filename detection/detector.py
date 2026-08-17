@@ -161,10 +161,17 @@ class BibDetector:
             for _ in tqdm(as_completed(futures), total=len(futures), desc=album_name, leave=False):
                 completed += 1
                 if completed % 250 == 0:
-                    snap = utils.fetch_status_snapshot()
-                    logger.info("status_codes so far: %s", snap)
-        snap = utils.fetch_status_snapshot()
-        logger.info("album '%s' done. status_codes: %s", album_name, snap)
+                    logger.info(
+                        "GET: %s | POST: %s",
+                        utils.fetch_status_snapshot(),
+                        utils.post_status_snapshot(),
+                    )
+        logger.info(
+            "album '%s' done. GET: %s | POST: %s",
+            album_name,
+            utils.fetch_status_snapshot(),
+            utils.post_status_snapshot(),
+        )
 
     def _process_result_boxes(self, result, img):
         """Process YOLO prediction boxes for a single result.
