@@ -10,6 +10,11 @@ logger = logging.getLogger(__name__)
 
 # Persistent HTTP session with connection pooling
 _session = requests.Session()
+# Some upstream endpoints reject the default python-requests User-Agent.
+_session.headers["User-Agent"] = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
 _adapter = requests.adapters.HTTPAdapter(pool_connections=32, pool_maxsize=32)
 _session.mount("http://", _adapter)
 _session.mount("https://", _adapter)
@@ -61,18 +66,48 @@ def post_results(image_id: int, album_number: int, bib_numbers: list):
         logger.warning("post_results failed for image %s: %s", image_id, e)
 
 
+_fetch_status_counts: dict = {}
+_fetch_status_lock = threading.Lock()
+
+
+def _record_status(code: int):
+    with _fetch_status_lock:
+        _fetch_status_counts[code] = _fetch_status_counts.get(code, 0) + 1
+
+
+def fetch_status_snapshot() -> dict:
+    with _fetch_status_lock:
+        return dict(_fetch_status_counts)
+
+
 def fetch_image(url: str):
     """Fetch a JPEG from url and return a BGR numpy array, or None on failure."""
     import cv2
     import numpy as np
+    import time
     try:
         resp = _session.get(url, timeout=config.IMAGE_FETCH_TIMEOUT)
+        _record_status(resp.status_code)
+        if resp.status_code in (429, 503):
+            retry_after = resp.headers.get("Retry-After")
+            logger.warning(
+                "RATE_LIMIT status=%s retry_after=%s url=%s",
+                resp.status_code, retry_after, url,
+            )
+            try:
+                sleep_s = float(retry_after) if retry_after else 5.0
+            except ValueError:
+                sleep_s = 5.0
+            time.sleep(min(sleep_s, 30.0))
+            return None
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
         arr = np.frombuffer(resp.content, np.uint8)
         return cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    except Exception:
+    except Exception as e:
+        _record_status(-1)
+        logger.debug("fetch_image failed url=%s err=%s", url, e)
         return None
 
 

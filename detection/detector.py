@@ -9,34 +9,97 @@ import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import easyocr
 
 logger = logging.getLogger(__name__)
 
-# EasyOCR reader - loaded once, shared across threads.
-# readtext() is not thread-safe internally, so all OCR calls go through a lock.
-_ocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
-_ocr_lock   = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# OCR engine selection
+# ---------------------------------------------------------------------------
+# Both engines expose the same read(roi) -> (digits, conf) interface so the
+# rest of the pipeline is engine-agnostic. Selection is driven by
+# config.OCR_ENGINE. Neither library is fully thread-safe, so all calls go
+# through _ocr_lock.
+_ocr_lock = threading.Lock()
 
 
-def _ocr_roi(roi):
-    """Run EasyOCR digit-only recognition on a small crop. Thread-safe via lock.
-    Returns (text, bbox, conf) - text and bbox are empty/None on miss.
-    """
-    with _ocr_lock:
-        results = _ocr_reader.readtext(
+class _EasyOCREngine:
+    name = "easyocr"
+
+    def __init__(self):
+        import easyocr
+        self.reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+
+    def read(self, roi):
+        results = self.reader.readtext(
             roi,
             allowlist='0123456789',
             detail=1,
             paragraph=False,
         )
-    if not results:
-        return "", None, 0.0
-    best = max(results, key=lambda r: r[2])
-    bbox, text, conf = best[0], best[1], best[2]
-    if conf < config.OCR_CONF_THRESHOLD:
-        return "", None, 0.0
-    return "".join(filter(str.isdigit, text)), bbox, float(conf)
+        if not results:
+            return "", 0.0
+        best = max(results, key=lambda r: r[2])
+        _, text, conf = best
+        conf = float(conf)
+        if conf < config.OCR_CONF_THRESHOLD:
+            return "", 0.0
+        return "".join(filter(str.isdigit, text)), conf
+
+
+class _PaddleOCREngine:
+    name = "paddleocr"
+
+    def __init__(self):
+        from paddleocr import PaddleOCR
+        # PP-OCRv4 English recognition; angle classifier off (bibs are upright).
+        self.reader = PaddleOCR(use_angle_cls=False, lang="en", show_log=False)
+
+    def read(self, roi):
+        try:
+            results = self.reader.ocr(roi, cls=False)
+        except Exception:  # noqa: BLE001
+            return "", 0.0
+        # PaddleOCR returns [[[bbox, (text, conf)], ...]] or [None]
+        if not results or not results[0]:
+            return "", 0.0
+        cands = []
+        for item in results[0]:
+            if item is None:
+                continue
+            _bbox, (text, conf) = item
+            conf = float(conf)
+            if conf < config.OCR_CONF_THRESHOLD:
+                continue
+            digits = "".join(filter(str.isdigit, text))
+            if not digits:
+                continue
+            cands.append((digits, conf))
+        if not cands:
+            return "", 0.0
+        return max(cands, key=lambda c: c[1])
+
+
+def _build_engine():
+    choice = config.OCR_ENGINE
+    if choice == "paddle" or choice == "paddleocr":
+        logger.info("Using PaddleOCR")
+        return _PaddleOCREngine()
+    if choice == "easyocr" or choice == "easy":
+        logger.info("Using EasyOCR")
+        return _EasyOCREngine()
+    raise ValueError(f"Unknown OCR_ENGINE: {config.OCR_ENGINE!r}")
+
+
+_ocr_engine = _build_engine()
+
+
+def _ocr_roi(roi):
+    """Run digit OCR on a crop. Thread-safe via lock.
+    Returns (digits, conf) - digits is "" on miss.
+    """
+    with _ocr_lock:
+        return _ocr_engine.read(roi)
 
 
 class BibDetector:
@@ -73,7 +136,7 @@ class BibDetector:
         try:
             detections = self.detect_bibs_in_image(img)
             if detections:
-                utils.post_results(img_id, album["albumNr"], detections)
+                utils.post_results(img_id, album["id"], detections)
         except Exception as e:  # noqa: BLE001
             logger.warning("Failed image %s: %s", img_id, e)
 
@@ -92,10 +155,16 @@ class BibDetector:
             return
 
         print(f"Processing album '{album_name}' - {len(pending)} remaining / {len(filenames)} total")
+        completed = 0
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(self._process_one, fn, album): fn for fn in pending}
             for _ in tqdm(as_completed(futures), total=len(futures), desc=album_name, leave=False):
-                pass
+                completed += 1
+                if completed % 250 == 0:
+                    snap = utils.fetch_status_snapshot()
+                    logger.info("status_codes so far: %s", snap)
+        snap = utils.fetch_status_snapshot()
+        logger.info("album '%s' done. status_codes: %s", album_name, snap)
 
     def _process_result_boxes(self, result, img):
         """Process YOLO prediction boxes for a single result.
@@ -118,27 +187,28 @@ class BibDetector:
         return int(box.cls[0]) == 0 and float(box.conf[0]) > config.CONF_THRESHOLD
 
     def _extract_bibs_from_roi(self, roi, x1, y1, x2, y2, yolo_conf):
-        """Run OCR on the full person crop and return any bib found.
+        """Run OCR on the detected bib crop and return any bib found.
 
-        The OCR confidence threshold filters noise from shoes/shorts logos,
-        and the margin check drops reads that hug the box edges (typically
-        partial reads of clothing text bleeding out of the crop).
+        The detector (v2) predicts tight bib bboxes directly, so we upscale
+        small crops to give EasyOCR enough pixels to work with. No edge-margin
+        check: with a tight bib crop, digits legitimately fill the ROI.
         """
         if roi.size == 0:
             return []
-        clean_text, ocr_bbox, ocr_conf = _ocr_roi(roi)
+
+        # Upscale small crops so EasyOCR has enough pixels. Bibs seen from a
+        # distance can be only ~30px tall in the source image.
+        rh, rw = roi.shape[:2]
+        min_h = 96
+        if rh < min_h:
+            scale = min_h / rh
+            roi = cv2.resize(roi, (int(rw * scale), min_h), interpolation=cv2.INTER_CUBIC)
+
+        clean_text, ocr_conf = _ocr_roi(roi)
         if not clean_text or not re.fullmatch(r"\d{1,4}", clean_text):
             return []
-
-        # Margin check - drop text detected within 15% of any person-box edge
-        if ocr_bbox is not None:
-            rh, rw = roi.shape[:2]
-            margin = min(rw, rh) * 0.15
-            xs = [pt[0] for pt in ocr_bbox]
-            ys = [pt[1] for pt in ocr_bbox]
-            if min(xs) < margin or min(ys) < margin or \
-               max(xs) > rw - margin or max(ys) > rh - margin:
-                return []
+        if clean_text.startswith("0"):
+            return []
 
         return [{
             "bib_number": clean_text,

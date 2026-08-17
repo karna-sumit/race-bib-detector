@@ -19,11 +19,12 @@ MODEL_PATH = "models/best.pt"
 IMAGE_FETCH_TIMEOUT = 10  # seconds
 
 # YOLO inference
-IMAGE_SIZE       = 320
-CONF_THRESHOLD   = 0.25   # YOLO bbox confidence threshold
+IMAGE_SIZE       = 640
+CONF_THRESHOLD   = 0.25
 
 # OCR
-OCR_CONF_THRESHOLD = 0.3  # EasyOCR minimum confidence to accept a result
+OCR_ENGINE = os.getenv("OCR_ENGINE", "paddle").lower()
+OCR_CONF_THRESHOLD = 0.3
 
 # Output
 OUTPUT_CSV = "bib_results.csv"
@@ -31,6 +32,4 @@ OUTPUT_CSV = "bib_results.csv"
 # Device: "mps" on Apple Silicon, "cuda" on GCP GPU, "cpu" on GCP CPU VM
 DEVICE = os.getenv("DEVICE", "cpu")
 
-# Concurrent image-fetch + processing threads
-# 16 is safe on Apple Silicon; 32 works well on GCP e2-standard-4
 WORKERS = int(os.getenv("WORKERS", "16"))

@@ -73,7 +73,7 @@ def main():
             continue
         detections = detector.detect_bibs_in_image(img)
         if detections:
-            utils.post_results(img_id, album["albumNr"], detections)
+            utils.post_results(img_id, album["id"], detections)
 
     print("Retry complete.")
 
