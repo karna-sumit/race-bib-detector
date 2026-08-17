@@ -180,7 +180,14 @@ class BibDetector:
         )
 
     def _process_result_boxes(self, result, img):
-        """Filter person boxes, skip frame-clipped ones, cap at 10, run OCR."""
+        """Filter person boxes, skip horizontally-clipped ones, cap at 10, run OCR.
+
+        Only the LEFT and RIGHT edges are checked. Running-shot framing frequently
+        clips the top of the head or the feet at the bottom, but those crops still
+        contain a fully-visible bib. Horizontal clipping is the real problem — a
+        bib running off the side of the frame gives partial digits (e.g. '403'
+        when the runner is actually 4035).
+        """
         h_img, w_img = img.shape[:2]
         edge_margin = max(4, int(config.EDGE_MARGIN_FRAC * max(h_img, w_img)))
         person_boxes = [b for b in result.boxes if self._is_valid_person_box(b)]
@@ -188,8 +195,7 @@ class BibDetector:
         detections = []
         for box in person_boxes[:10]:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
-            if (x1 <= edge_margin or y1 <= edge_margin
-                    or x2 >= w_img - edge_margin or y2 >= h_img - edge_margin):
+            if x1 <= edge_margin or x2 >= w_img - edge_margin:
                 continue
             roi = img[y1:y2, x1:x2]
             if roi.size > 0:
