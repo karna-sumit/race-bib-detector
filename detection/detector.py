@@ -197,6 +197,9 @@ class BibDetector:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             if x1 <= edge_margin or x2 >= w_img - edge_margin:
                 continue
+            bw, bh = x2 - x1, y2 - y1
+            if bh <= 0 or (bw / bh) < config.MIN_BBOX_ASPECT:
+                continue
             roi = img[y1:y2, x1:x2]
             if roi.size > 0:
                 detections.extend(self._extract_bibs_from_roi(roi, x1, y1, x2, y2, float(box.conf[0])))

@@ -26,6 +26,12 @@ CONF_THRESHOLD   = 0.25
 # Skip bib detections whose bbox touches the image edge (frame-clipped = incomplete).
 EDGE_MARGIN_FRAC = 0.005
 
+# Minimum bbox aspect ratio (width / height). Real bibs are printed wider than tall
+# (~2:1). Near-square or taller-than-wide detections are usually partial/occluded
+# bibs on background runners; drop them to reduce false positives like reading
+# "13" out of a "1300-something" edge-crop.
+MIN_BBOX_ASPECT = 1.3
+
 # Max images per batched POST to ADD_IMAGES_URL.
 POST_BATCH_SIZE = int(os.getenv("POST_BATCH_SIZE", "50"))
 
